@@ -20,7 +20,7 @@ face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
 
 
 #init the recognizer, can recognize and identify person
-recognizer = cv2.createLBPHFaceRecognizer()
+recognizer = cv2.face.LBPHFaceRecognizer_create()
 
 #iterate image in data folder. the subfolder name is the person's name
 for subdir,dirs,file in os.walk(root):
