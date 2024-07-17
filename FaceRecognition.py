@@ -1,123 +1,116 @@
-import numpy as np
-import cv2,os
-import webbrowser
+import os
 import time
+import cv2
+import numpy as np
 
-print ("Start Init components...")
-#print "opencv version:",cv2.__version__
+print("Initializing components...")
 
 root = "data"
+image_size = (200, 200)  # Common size for all images
 
-#init training data set and label set
-training_data  = []
-training_label = []
-user_label = []
-counter = 0
-flag = 0
+# Initialize training data set and label set
+training_data = []
+training_labels = []
+user_labels = []
+label_counter = 0
 
-#init the face detector, can only detect if image contains face
+# Initialize the face detector
 face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
 
-
-#init the recognizer, can recognize and identify person
+# Initialize the recognizer
 recognizer = cv2.face.LBPHFaceRecognizer_create()
 
-#iterate image in data folder. the subfolder name is the person's name
-for subdir,dirs,file in os.walk(root):
+# Function to capture and recognize faces
+def capture_and_recognize():
+    cap = cv2.VideoCapture(0)
+    font = cv2.FONT_HERSHEY_SIMPLEX
 
-	# for each image we add to train_data
-	for f in file:
-		
-		#string label of that person
-		name = subdir.split('\\')
-		name = name[0]
+    start_time = time.time()
+    end_time = start_time + 5.0  # Capture faces for 5 seconds
 
-		#data of that image
-		file_sample =  os.path.join(subdir,f)
+    faces_detected = False
+    new_face_detected = False
+    welcome_displayed = False
 
-		print ("Proccesing image for"),name
-		
-		#read image from file
-		img = cv2.imread(file_sample)
-		#transform bgr image to grayscale
-		#	grayscale can reduce the difficulty for training and calcluation
-		img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-		#find face in this image
-		faces = face_cascade.detectMultiScale(img, 1.3, 5)
-		
-		#if we detect only one face in this image, we consider this image is good
-		#	and this face will be label as that person
+    while time.time() < end_time:
+        ret, img = cap.read()
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        faces = face_cascade.detectMultiScale(gray, 1.3, 5)
 
-		if(len(faces) == 1):
+        for (x, y, w, h) in faces:
+            cv2.rectangle(img, (x, y), (x+w, y+h), (255, 0, 0), 2)
+            roi = gray[y:y+h, x:x+w]
 
-			#get the coordinate of face that in this image
-			(x,y,w,h) = faces[0]
+            # Resize the face region to the common size
+            roi_resized = cv2.resize(roi, image_size)
 
-			#find the region of interest a.k.a the part of image that contains face
-			roi = img[y:y+h, x:x+w]
+            recognize_result, confidence = recognizer.predict(roi_resized)
 
-			#Add data and label to training data set
-			training_data.append(np.asarray(roi,dtype=np.uint8))
+            if recognize_result >= 0 and confidence < 100:
+                cv2.putText(img, f"{user_labels[recognize_result - 1]} - {confidence:.2f}%", (x, y), font, 0.8, (255, 255, 255), 1)
+                if confidence < 55 and not welcome_displayed:
+                    print(f"Welcome {user_labels[recognize_result - 1]}")
+                    faces_detected = True
+                    welcome_displayed = True
+            else:
+                new_face_detected = True
 
-			#fisher face recognizer support int identifer, so we need a user_label and id label
-			if name not in user_label:
-				user_label.append(name)
-				counter = counter + 1
-			
-			training_label.append(counter)
+        cv2.imshow('Face Recognition', img)
 
-			
-		else:
-			print ("Warning - File is not good:"),file_sample
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
 
-print ("Start Training Data Set...")
-recognizer.train(np.asarray(training_data),np.asarray(training_label))
+    cap.release()
+    cv2.destroyAllWindows()
 
-print ("Finish Training!")
+    if not faces_detected and new_face_detected:
+        print("New face detected")
 
-print ("Start Camera Caputure")
-cap = cv2.VideoCapture(0)
+    return faces_detected
 
-print ("...Start Detection and Recognization...")
+# Iterate over images in the data folder
+for subdir, _, files in os.walk(root):
+    for f in files:
+        # Label of the person
+        name = os.path.basename(subdir)
 
-font = cv2.FONT_HERSHEY_SIMPLEX
+        # Path to the image file
+        file_path = os.path.join(subdir, f)
+
+        print(f"Processing image for {name}")
+
+        # Read the image
+        img = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
+        
+        # Detect faces in the image
+        faces = face_cascade.detectMultiScale(img, 1.3, 5)
+
+        if len(faces) == 1:
+            (x, y, w, h) = faces[0]
+            roi = img[y:y+h, x:x+w]
+
+            # Resize the face region to the common size
+            roi_resized = cv2.resize(roi, image_size)
+
+            training_data.append(roi_resized)
+
+            if name not in user_labels:
+                user_labels.append(name)
+                label_counter += 1
+
+            training_labels.append(label_counter)
+        else:
+            print(f"Warning - File is not good: {file_path}")
+
+print("Training data set...")
+recognizer.train(np.asarray(training_data), np.asarray(training_labels))
+print("Training complete!")
+
 while True:
-	ret, img = cap.read()
-	gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-	faces = face_cascade.detectMultiScale(gray, 1.3, 5)
-
-	for (x,y,w,h) in faces:
-		#draw a rectangle for each detected face
-		cv2.rectangle(img,(x,y),(x+w,y+h),(255,0,0),2)
-
-		#find the ROI of face
-		roi = img[y:y+h,x:x+w]
-		gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-		# actual Recongnize function call
-		[recognize_result,confidence] = recognizer.predict(gray)
-
-		#find if we found match result
-		if(recognize_result >= 0 and abs(confidence)< 100):
-			#print confidence
-			cv2.putText(img,"%s-%3.2f%%" %(user_label[recognize_result -1],confidence),(x,y),font,.8,(255,255,255),1)
-			if ((confidence) < 55):
-				time.sleep(3)			
-				print ("Welcome" %(user_label)) 			
-				p=webbrowser.open('http://192.168.0.200')
-				time.sleep(10)
-			#p.kill	()
-			
-		else:
-			print ("someone else"),recognize_result,confidence
-		#"%s - %d -  %3.2f%%" %(user_label[recognize_result -1],recognize_result,confidence)else:
-			#cv2.putText(img," %d -  %3.2f%%" %(recognize_result,confidence),(x,y),font,.8,(255,255,255),1)
-
-	cv2.imshow('Face Recognization',img)	
-	#press 'q' to exit
-	if cv2.waitKey(1) & 0xFF == ord('q'):
-		break
-
-
-cv2.destroyAllWindows()
-cap.release()
+    print("Starting face detection...")
+    if capture_and_recognize():
+        print("Waiting for next scan...")
+        time.sleep(10)  # Wait 10 seconds before next scan
+    else:
+        print("No face detected during scan.")
+        time.sleep(10)  # Wait 10 seconds before next scan
